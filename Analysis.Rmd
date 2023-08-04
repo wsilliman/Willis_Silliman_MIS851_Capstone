@@ -1,0 +1,241 @@
+---
+title: "FInalProj"
+output: html_document
+date: "2023-07-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+```
+
+```{r}
+data <- read.csv("Hospital_Inpatient_Discharges__SPARCS_De-Identified___2013.csv")
+data <- data %>%
+  select(-c(
+    Operating.Certificate.Number,
+    Facility.ID,
+    Facility.Name,
+    Discharge.Year,
+    Birth.Weight,
+    Abortion.Edit.Indicator,
+    Zip.Code...3.digits,
+    CCS.Diagnosis.Code,
+    CCS.Procedure.Code,
+    APR.DRG.Code,
+    APR.MDC.Code,
+    APR.Severity.of.Illness.Code
+    )
+  ) %>%
+  mutate(
+    Hospital.County = factor(
+      Hospital.County,
+      levels = sort(unique(data$Hospital.County))
+    ),
+    Health.Service.Area = factor(
+      Health.Service.Area,
+      levels = sort(unique(data$Health.Service.Area))
+    ),
+    Age.Group = factor(
+      Age.Group,
+      levels = c('0 to 17',
+                 '18 to 29',
+                 '30 to 49',
+                 '50 to 69',
+                 '70 or Older'
+      )
+    ),
+    Gender = factor(
+      Gender,
+      levels = c('M', 'F'),
+      labels = c('Male', 'Female')
+    ),
+    Race = factor(
+      Race,
+      levels = c('White', 'Black/African American', 'Other Race', 'Unknown')
+    ),
+    Ethnicity = factor(
+      Ethnicity,
+      levels = c('Not Span/Hispanic', 'Spanish/Hispanic', 'Unknown')
+    ),
+    Type.of.Admission = factor(
+      Type.of.Admission,
+      levels = c(
+        'Elective',
+        'Urgent',
+        'Emergency',
+        'Trauma',
+        'Newborn',
+        'Not Available'
+      )
+    ),
+    APR.Severity.of.Illness.Description = factor(
+      APR.Severity.of.Illness.Description,
+      levels = c(
+        'Minor',
+        'Moderate',
+        'Major',
+        'Extreme',
+        ""
+      ),
+      labels = c(
+        'Minor',
+        'Moderate',
+        'Major',
+        'Extreme',
+        'Unknown'
+      )
+    ),
+    APR.Risk.of.Mortality = factor(
+      APR.Risk.of.Mortality,
+      levels = c(
+        'Minor',
+        'Moderate',
+        'Major',
+        'Extreme',
+        ""
+      ),
+      labels = c(
+        'Minor',
+        'Moderate',
+        'Major',
+        'Extreme',
+        'Unknown'
+      )
+    ),
+    APR.Medical.Surgical.Description = factor(
+      APR.Medical.Surgical.Description,
+      levels = c(
+        'Medical',
+        'Surgical',
+        'Not Applicable'
+      )
+    ),
+    Emergency.Department.Indicator = factor(
+      Emergency.Department.Indicator,
+      levels = c('Y', 'N'),
+      labels = c('Yes', 'No')
+    ),
+    Hospital.Profit = Total.Charges - Total.Costs,
+    Num.Length.of.Stay = ifelse(
+      Length.of.Stay != '120 +',
+      as.numeric(Length.of.Stay),
+      120
+    )
+  )
+
+ns <- names(data)
+ns <- c(ns[1:7], ns[length(ns)], ns[8:(length(ns)-1)])
+data <- data %>% select(all_of(ns))
+```
+
+```{r}
+model <- glm(Num.Length.of.Stay ~ Age.Group + Gender + Type.of.Admission + APR.Severity.of.Illness.Description + APR.Risk.of.Mortality + APR.Medical.Surgical.Description + Emergency.Department.Indicator, family = gaussian, data)
+anova(model)
+summary(model)
+```
+
+```{r}
+aov_model <- aov(Num.Length.of.Stay ~ Age.Group + Gender + Type.of.Admission + APR.Severity.of.Illness.Description + APR.Risk.of.Mortality + APR.Medical.Surgical.Description + Emergency.Department.Indicator, data)
+summary(aov_model)
+```
+
+```{r}
+lme_model <- lmer(Num.Length.of.Stay ~ Age.Group + APR.Severity.of.Illness.Description + APR.Risk.of.Mortality + APR.Medical.Surgical.Description + (1|Hospital.County), data)
+summary(lme_model)
+anova(lme_model)
+```
+
+```{r}
+grouped_data <- data %>%
+  mutate(grouped_col = paste(Age.Group, APR.Severity.of.Illness.Description, APR.Risk.of.Mortality, APR.Medical.Surgical.Description, ' ')) %>%
+  select(grouped_col, Num.Length.of.Stay) %>%
+  group_by(grouped_col) %>%
+  summarise(mean = mean(Num.Length.of.Stay), sd = sd(Num.Length.of.Stay), n = n())
+grouped_data
+```
+
+
+```{r}
+cost_model <- lm(Hospital.Profit ~ Num.Length.of.Stay + Type.of.Admission + APR.Severity.of.Illness.Description + Emergency.Department.Indicator, data)
+summary(cost_model)
+```
+
+```{r}
+white <- data %>%
+  filter(Race == 'White' & Ethnicity == 'Not Span/Hispanic') %>%
+  select(Num.Length.of.Stay)
+non.white <- data %>%
+  filter(Race != 'White' | Ethnicity != 'Not Span/Hispanic') %>%
+  select(Num.Length.of.Stay)
+
+t.test(white, non.white)
+```
+
+```{r}
+unique(data$Health.Service.Area)
+```
+
+```{r}
+areas <- data %>% 
+  filter(Health.Service.Area != '') %>%
+  select(Num.Length.of.Stay, Health.Service.Area)
+an <- aov(log(Num.Length.of.Stay)~ Health.Service.Area, areas)
+summary(an)
+anova(an)
+
+areas %>%
+  group_by(Health.Service.Area) %>%
+  summarise(mean = mean(Num.Length.of.Stay), sd = sd(Num.Length.of.Stay), n = n())
+```
+
+```{r}
+library(scales)
+library(ggpubr)
+
+data1 <- data %>%
+  mutate(New_R = ifelse(Race == 'White' & Ethnicity == 'Not Span/Hispanic', 'White', 'Non-White')) %>%
+  select(New_R, Num.Length.of.Stay) %>%
+  mutate(New_R = factor(New_R, levels = c('White', 'Non-White')))
+
+p1 <- data1 %>%
+  filter(New_R == 'White') %>%
+  ggplot(aes(x = Num.Length.of.Stay)) +
+    geom_histogram(aes(y = (..count..)/sum(..count..)), binwidth = 5) + 
+    scale_y_continuous(labels = percent, limits = c(0, .5)) +
+    ylab('Precent in group') +
+    ggtitle('White Patients') + 
+    theme(axis.title.x = element_blank(),
+          plot.title = element_text(hjust = .5),
+          panel.background = element_blank(),
+          panel.border = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.line = element_line(colour = "black"),
+          axis.line.x.top = element_blank())
+
+p2 <- data1 %>%
+  filter(New_R != 'White') %>%
+  ggplot(aes(x = Num.Length.of.Stay)) +
+    geom_histogram(aes(y = (..count..)/sum(..count..)), binwidth = 5) + 
+    scale_y_continuous(labels = percent, limits = c(0, .5)) +
+    ggtitle('Non-White Patients') + 
+    theme(axis.title.y = element_blank(),
+          axis.text.y = element_blank(),
+          axis.title.x = element_blank(),
+          plot.title = element_text(hjust = .5),
+          panel.background = element_blank(),
+          panel.border = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.line = element_line(colour = "black"),
+          axis.line.x.top = element_blank()
+    )
+
+fig <- ggarrange(p1, p2, ncol = 2)
+
+annotate_figure(fig, bottom = 'Days in Hospital')
+```
+
